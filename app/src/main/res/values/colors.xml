@@ -18,4 +18,5 @@
     <color name="standing_time_color">#6DC9C9</color>
     <color name="distance_color">#2E292A</color>
     <color name="steps_color">#FF5722</color>
+    <color name="move_minutes_color">#1D0EE6</color>
 </resources>

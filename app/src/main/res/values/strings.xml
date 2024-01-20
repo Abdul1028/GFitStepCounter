@@ -4,5 +4,12 @@
     <string name="kcal">KCal</string>
     <string name="distance">distance</string>
     <string name="mi">mi</string>
+    <string name="move_minutes">Heart Rate</string>
+    <string name="moved_minutes">Mins</string>
     <string name="steps">Steps</string>
+
+    <string name="heart_points">Heart Points</string>
+    <string name="heart_pts">pts</string>
+
+
 </resources>

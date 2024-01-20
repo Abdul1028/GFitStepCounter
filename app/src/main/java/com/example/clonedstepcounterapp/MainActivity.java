@@ -1,16 +1,24 @@
 package com.example.clonedstepcounterapp;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.databinding.DataBindingUtil;
 
 import com.example.clonedstepcounterapp.*;
 import com.example.clonedstepcounterapp.databinding.ActivityMainBinding;
+import com.example.clonedstepcounterapp.permissionUtil.AggregatePermission;
 import com.example.clonedstepcounterapp.permissionUtil.PermissionManager;
 import com.example.clonedstepcounterapp.permissionUtil.Permissions;
 import com.example.clonedstepcounterapp.utils.CommonUtils;
@@ -43,12 +51,26 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
     private FitnessDataResponseModel fitnessDataResponseModel;
     private ActivityMainBinding activityMainBinding;
 
+    private static final String TAG2 = "HeartRateActivity";
+
+
+    Button heart;
+    TextView bpm_display;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         activityMainBinding = DataBindingUtil.setContentView(this, R.layout.activity_main);
         initialization();
         checkPermissions();
+        bpm_display = findViewById(R.id.bpm_display);
+        bpm_display.setText("Fetch Heart rate to display");
+
+//        requestForHistory();
+
+//        Calendar targetDate = Calendar.getInstance();
+//        targetDate.set(2023, Calendar.JANUARY, 14);
+//        requestDayByDayData(targetDate);
     }
 
     private void initialization() {
@@ -63,6 +85,8 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
         }
     }
 
+
+
     private void checkGoogleFitPermission() {
 
         fitnessOptions = FitnessOptions.builder()
@@ -72,7 +96,8 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
                 .addDataType(DataType.AGGREGATE_CALORIES_EXPENDED, FitnessOptions.ACCESS_READ)
                 .addDataType(DataType.TYPE_DISTANCE_DELTA, FitnessOptions.ACCESS_READ)
                 .addDataType(DataType.AGGREGATE_DISTANCE_DELTA, FitnessOptions.ACCESS_READ)
-
+                .addDataType(DataType.TYPE_HEART_POINTS,FitnessOptions.ACCESS_READ)
+                .addDataType(DataType.TYPE_HEART_RATE_BPM, FitnessOptions.ACCESS_READ)
                 .build();
         GoogleSignInAccount account = getGoogleAccount();
 
@@ -88,11 +113,88 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
 
     }
 
+
+
+    private void heartRateCall() {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED) {
+            // You have the permission, proceed with subscribing to heart rate data
+            Fitness.getRecordingClient(this, getGoogleAccount())
+                    .subscribe(DataType.TYPE_HEART_RATE_BPM)
+                    .addOnSuccessListener(aVoid -> {
+                        // Successfully subscribed to heart rate data
+                        // Now, let's read the heart rate data
+                        readHeartRateData();
+                        Log.e("DATA","Readed data");
+                    })
+                    .addOnFailureListener(e -> {
+                        // Handle subscription failure
+                        Log.e("DATA", "Failed to subscribe to heart rate data", e);
+                    });
+
+        } else {
+            // Permission is not granted, request it
+            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.BODY_SENSORS}, GOOGLE_FIT_PERMISSIONS_REQUEST_CODE);
+        }
+
+
+
+    }
+
+    private void readHeartRateData() {
+        long endTimeMillis = System.currentTimeMillis();
+        long startTimeMillis = endTimeMillis - TimeUnit.HOURS.toMillis(24); // Example: Last hour
+
+        DataReadRequest readRequest = new DataReadRequest.Builder()
+                .read(DataType.TYPE_HEART_RATE_BPM)
+                .setTimeRange(startTimeMillis, endTimeMillis, TimeUnit.MILLISECONDS)
+                .build();
+
+        Fitness.getHistoryClient(this, getGoogleAccount())
+                .readData(readRequest)
+                .addOnSuccessListener(dataReadResponse -> {
+                    // Process heart rate data
+                    logHeartRateData(dataReadResponse);
+                })
+                .addOnFailureListener(e -> {
+                    // Handle data read failure
+                    Log.e("DATA", "Failed to read heart rate data", e);
+                });
+    }
+
+    private void logHeartRateData(DataReadResponse dataReadResponse) {
+        for (DataSet dataSet : dataReadResponse.getDataSets()) {
+            for (DataPoint dataPoint : dataSet.getDataPoints()) {
+                // Assuming a single value in each DataPointd
+                float heartRate = dataPoint.getValue(Field.FIELD_BPM).asFloat();
+                long timestamp = dataPoint.getTimestamp(TimeUnit.MILLISECONDS);
+
+                Log.d("DATA", "Heart Rate: " + heartRate + " bpm at " + new Date(timestamp));
+                String data = "Heart Rate: " + heartRate + " bpm at " + new Date(timestamp);
+                Log.d("DATA",data);
+                bpm_display.setText(data);
+
+
+            }
+        }
+    }
+
     private void startDataReading() {
 
         getTodayData();
 
         subscribeAndGetRealTimeData(DataType.TYPE_STEP_COUNT_DELTA);
+
+        heart = findViewById(R.id.heart);
+        heart.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Toast.makeText(MainActivity.this, "clicked", Toast.LENGTH_SHORT).show();
+
+                heartRateCall();
+            }
+        });
+
+
 
     }
 
@@ -100,10 +202,10 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
         Fitness.getRecordingClient(this, getGoogleAccount())
                 .subscribe(dataType)
                 .addOnSuccessListener(aVoid -> {
-                    Log.e(TAG, "Subscribed");
+                    Log.e("DATA", "Subscribed");
                 })
                 .addOnFailureListener(e -> {
-                    Log.e(TAG, "Failure " + e.getLocalizedMessage());
+                    Log.e("DATA", "Failure " + e.getLocalizedMessage());
                 });
 
         getDataUsingSensor(dataType);
@@ -134,43 +236,109 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
                 .readDailyTotal(DataType.TYPE_STEP_COUNT_DELTA)
                 .addOnSuccessListener(this);
         Fitness.getHistoryClient(this, getGoogleAccount())
-                .readDailyTotal(DataType.TYPE_CALORIES_EXPENDED)
-                .addOnSuccessListener(this);
-        Fitness.getHistoryClient(this, getGoogleAccount())
                 .readDailyTotal(DataType.TYPE_DISTANCE_DELTA)
                 .addOnSuccessListener(this);
 
-    }
-
-
-    private void requestForHistory() {
-
-        Calendar cal = Calendar.getInstance();
-        cal.setTime(new Date());
-        long endTime = cal.getTimeInMillis();
-
-        cal.set(2021, 2, 5);
-        cal.set(Calendar.HOUR_OF_DAY, 0); //so it get all day and not the current hour
-        cal.set(Calendar.MINUTE, 0); //so it get all day and not the current minute
-        cal.set(Calendar.SECOND, 0); //so it get all day and not the current second
-        long startTime = cal.getTimeInMillis();
-
-
-        DataReadRequest readRequest = new DataReadRequest.Builder()
-                .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
-                .aggregate(DataType.AGGREGATE_STEP_COUNT_DELTA)
-                .aggregate(DataType.TYPE_CALORIES_EXPENDED)
-                .aggregate(DataType.AGGREGATE_CALORIES_EXPENDED)
-                .aggregate(DataType.TYPE_DISTANCE_DELTA)
-                .aggregate(DataType.AGGREGATE_DISTANCE_DELTA)
-                .bucketByTime(1, TimeUnit.HOURS)
-                .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
-                .build();
-
         Fitness.getHistoryClient(this, getGoogleAccount())
-                .readData(readRequest)
+                .readDailyTotal(DataType.TYPE_HEART_POINTS)  // Add heart points data
                 .addOnSuccessListener(this);
+        Fitness.getHistoryClient(this, getGoogleAccount())
+                .readDailyTotal(DataType.TYPE_HEART_RATE_BPM)  // Add heart rate BPM data
+                .addOnSuccessListener(this);
+
     }
+
+//    public void getHeartRate(){
+//        DataReadRequest readRequest = new DataReadRequest.Builder()
+//                .read(DataType.TYPE_HEART_RATE_BPM)
+//                .setTimeRange(startTimeMillis, endTimeMillis, TimeUnit.MILLISECONDS)
+//                .build();
+//
+//        Fitness.getHistoryClient(this, GoogleSignIn.getLastSignedInAccount(this))
+//                .readData(readRequest)
+//                .addOnSuccessListener(dataReadResponse -> {
+//                    // Process heart rate data
+//                    // The heart rate data will be available in dataReadResponse.getDataSets()
+//                })
+//                .addOnFailureListener(e -> {
+//                    // Handle data read failure
+//                });
+//
+//    }
+
+
+
+//
+//    private void requestForHistory() {
+//
+//        Calendar cal = Calendar.getInstance();
+//        cal.setTime(new Date());
+//        long endTime = cal.getTimeInMillis();
+//
+//        cal.set(2021, 2, 5);
+//        cal.set(Calendar.HOUR_OF_DAY, 0); //so it get all day and not the current hour
+//        cal.set(Calendar.MINUTE, 0); //so it get all day and not the current minute
+//        cal.set(Calendar.SECOND, 0); //so it get all day and not the current second
+//        long startTime = cal.getTimeInMillis();
+//
+//
+//        DataReadRequest readRequest = new DataReadRequest.Builder()
+//                .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
+//                .aggregate(DataType.AGGREGATE_STEP_COUNT_DELTA)
+//                .aggregate(DataType.TYPE_CALORIES_EXPENDED)
+//                .aggregate(DataType.AGGREGATE_CALORIES_EXPENDED)
+//                .aggregate(DataType.TYPE_DISTANCE_DELTA)
+//                .aggregate(DataType.AGGREGATE_DISTANCE_DELTA)
+//                .bucketByTime(1, TimeUnit.HOURS)
+//                .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
+//                .build();
+//
+//        Fitness.getHistoryClient(this, getGoogleAccount())
+//                .readData(readRequest)
+//                .addOnSuccessListener(this);
+//    }
+//
+//    private void requestDayByDayData(Calendar targetDate) {
+//        long startTime = targetDate.getTimeInMillis();
+//        long endTime = targetDate.getTimeInMillis() + TimeUnit.DAYS.toMillis(1); // End time is set to the next day
+//
+//        DataReadRequest readRequest = new DataReadRequest.Builder()
+//                .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
+//                .aggregate(DataType.AGGREGATE_STEP_COUNT_DELTA)
+//                .aggregate(DataType.TYPE_CALORIES_EXPENDED)
+//                .aggregate(DataType.AGGREGATE_CALORIES_EXPENDED)
+//                .aggregate(DataType.TYPE_DISTANCE_DELTA)
+//                .aggregate(DataType.AGGREGATE_DISTANCE_DELTA)
+//                .aggregate(DataType.TYPE_MOVE_MINUTES)
+//                .bucketByTime(1, TimeUnit.HOURS) // You can adjust the bucket size based on your requirement
+//                .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
+//                .build();
+//
+//        Fitness.getHistoryClient(this, getGoogleAccount())
+//                .readData(readRequest)
+//                .addOnSuccessListener(dataReadResponse -> {
+//                    fitnessDataResponseModel.steps = 0f;
+//                    fitnessDataResponseModel.distance = 0f;
+//                    fitnessDataResponseModel.moveMinutes = 0f;
+//
+//                    List<Bucket> bucketList = dataReadResponse.getBuckets();
+//                    if (bucketList != null && !bucketList.isEmpty()) {
+//                        for (Bucket bucket : bucketList) {
+//                            DataSet stepsDataSet = bucket.getDataSet(DataType.TYPE_STEP_COUNT_DELTA);
+//                            getDataFromDataReadResponse(stepsDataSet);
+//                            DataSet distanceDataSet = bucket.getDataSet(DataType.TYPE_DISTANCE_DELTA);
+//                            getDataFromDataReadResponse(distanceDataSet);
+//                            DataSet moveMinutesDataSet = bucket.getDataSet(DataType.TYPE_MOVE_MINUTES);
+//                            getDataFromDataReadResponse(moveMinutesDataSet);
+//                        }
+//                    }
+//                })
+//                .addOnFailureListener(e -> {
+//                    Log.e(TAG, "Error reading historical data: " + e.getLocalizedMessage());
+//                    System.out.println("ERR: " + e.toString());
+//                });
+//    }
+
 
     private GoogleSignInAccount getGoogleAccount() {
         return GoogleSignIn.getAccountForExtension(MainActivity.this, fitnessOptions);
@@ -187,6 +355,9 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
         } else if (o instanceof DataReadResponse) {
             fitnessDataResponseModel.steps = 0f;
             fitnessDataResponseModel.distance = 0f;
+            fitnessDataResponseModel.heartRatePoints = 0f; // Initialize heartPoints
+//            fitnessDataResponseModel.heartRateBpm = 0f;
+
             DataReadResponse dataReadResponse = (DataReadResponse) o;
             if (dataReadResponse.getBuckets() != null && !dataReadResponse.getBuckets().isEmpty()) {
                 List<Bucket> bucketList = dataReadResponse.getBuckets();
@@ -197,6 +368,11 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
                         getDataFromDataReadResponse(stepsDataSet);
                         DataSet distanceDataSet = bucket.getDataSet(DataType.TYPE_DISTANCE_DELTA);
                         getDataFromDataReadResponse(distanceDataSet);
+
+                        DataSet heartPointsDataSet = bucket.getDataSet(DataType.AGGREGATE_HEART_POINTS);
+                        getDataFromDataReadResponse(heartPointsDataSet);
+
+
                     }
                 }
             }
@@ -209,16 +385,22 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
         List<DataPoint> dataPoints = dataSet.getDataPoints();
         for (DataPoint dataPoint : dataPoints) {
             for (Field field : dataPoint.getDataType().getFields()) {
-                Log.e(TAG, " data manual history : " + dataPoint.getOriginalDataSource().getStreamName());
+                Log.e("DATA", " data manual history : " + dataPoint.getOriginalDataSource().getStreamName());
+
+
 
                 float value = Float.parseFloat(dataPoint.getValue(field).toString());
-                Log.e(TAG, " data : " + value);
+                Log.e("DATA", " data : " + value);
 
                 if (field.getName().equals(Field.FIELD_STEPS.getName())) {
                     fitnessDataResponseModel.steps = Float.parseFloat(new DecimalFormat("#.##").format(value + fitnessDataResponseModel.steps));
                 }else if (field.getName().equals(Field.FIELD_DISTANCE.getName())) {
                     fitnessDataResponseModel.distance = Float.parseFloat(new DecimalFormat("#.##").format(value + fitnessDataResponseModel.distance));
                 }
+                else if(field.getName().equals(Field.FIELD_BPM.getName())) {
+                    fitnessDataResponseModel.heartRatePoints = Float.parseFloat(new DecimalFormat("#.##").format(value + fitnessDataResponseModel.heartRatePoints));
+                }
+
             }
         }
         activityMainBinding.setFitnessData(fitnessDataResponseModel);
@@ -229,18 +411,27 @@ public class MainActivity extends AppCompatActivity implements PermissionManager
 
         List<DataPoint> dataPoints = dataSet.getDataPoints();
         for (DataPoint dataPoint : dataPoints) {
-            Log.e(TAG, " data manual : " + dataPoint.getOriginalDataSource().getStreamName());
+            Log.e("DATA", " data manual : " + dataPoint.getOriginalDataSource().getStreamName());
 
             for (Field field : dataPoint.getDataType().getFields()) {
 
                 float value = Float.parseFloat(dataPoint.getValue(field).toString());
-                Log.e(TAG, " data : " + value);
+                Log.e("DATA", " data : " + value);
 
                 if (field.getName().equals(Field.FIELD_STEPS.getName())) {
                     fitnessDataResponseModel.steps = Float.parseFloat(new DecimalFormat("#.##").format(value));
                 }else if (field.getName().equals(Field.FIELD_DISTANCE.getName())) {
                     fitnessDataResponseModel.distance = Float.parseFloat(new DecimalFormat("#.##").format(value));
                 }
+                else if(field.getName().equals(Field.FIELD_BPM.getName())){
+                    System.out.println("field bpm "+value);
+                    fitnessDataResponseModel.heartRatePoints = Float.parseFloat(new DecimalFormat("#.##").format(value));
+                } else if (field.getName().equals(DataType.AGGREGATE_HEART_POINTS)) {
+                    fitnessDataResponseModel.heartRatePoints = Float.parseFloat(new DecimalFormat("#.##").format(value));
+                    System.out.println("field points "+value);
+                }
+
+
             }
         }
         activityMainBinding.setFitnessData(fitnessDataResponseModel);
